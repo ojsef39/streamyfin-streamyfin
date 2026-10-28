@@ -1,11 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import type React from "react";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { TouchableOpacity, View } from "react-native";
-import DraggableFlatList, {
-  type RenderItemParams,
-  ScaleDecorator,
-} from "react-native-draggable-flatlist";
+import {
+  DraxHandle,
+  DraxProvider,
+  SortableContainer,
+  SortableItem,
+  type SortableReorderEvent,
+  useSortableList,
+} from "react-native-drax";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 
@@ -49,10 +54,10 @@ interface Props {
 
 const ACCENT = "#9334E9";
 /**
- * The strip a row's drag handle sits in, from the row's leading edge: its
- * padding, the handle and the handle's own hit slop.
+ * A drag starts on the handle at once: the rest of a row stays free to
+ * scroll and to be pressed, in a list that scrolls itself as in a sheet.
  */
-const DRAG_HANDLE_STRIP = { left: 0, width: 52 };
+const HANDLE_DRAG_DELAY_MS = 0;
 
 /**
  * A queue as the music player shows it: artwork, title and subtitle, a drag
@@ -74,119 +79,112 @@ export const DraggableQueueList: React.FC<Props> = ({
   onMoveRow,
   onDragActiveChange,
 }) => {
+  const listRef = useRef<FlashListRef<QueueRow>>(null);
+  const columnRef = useRef<View>(null);
+
+  const sortable = useSortableList({
+    data: rows,
+    keyExtractor: (item: QueueRow) => item.key,
+    longPressDelay: HANDLE_DRAG_DELAY_MS,
+    lockToMainAxis: true,
+    onReorder: ({ fromIndex, toIndex }: SortableReorderEvent<QueueRow>) => {
+      if (fromIndex !== toIndex) onMoveRow(fromIndex, toIndex);
+    },
+    onDragStart: () => onDragActiveChange?.(true),
+    // Also called for a drag that is cancelled or dropped where it started.
+    onDragEnd: () => onDragActiveChange?.(false),
+  });
+
   const row = useCallback(
-    (item: QueueRow, index: number, isActive: boolean, drag: () => void) => {
+    (item: QueueRow, index: number) => {
       const isCurrent = index === currentIndex;
       const isPast = index < currentIndex;
 
       return (
-        <TouchableOpacity
-          key={item.key}
-          testID={testID ? `${testID}-row-${item.key}` : undefined}
-          onPress={() => onPressRow(index)}
-          // Only where the list scrolls itself: see dragHitSlop below.
-          onLongPress={scrollable ? drag : undefined}
-          disabled={isActive || disabled}
-          className='flex-row items-center px-4 py-3'
-          style={{
-            opacity: isPast && !isActive ? 0.5 : 1,
-            backgroundColor: isActive
-              ? "#2a2a2a"
-              : isCurrent
-                ? "rgba(147, 52, 233, 0.3)"
-                : "#121212",
-          }}
+        <SortableItem
+          sortable={sortable}
+          index={index}
+          dragHandle
+          draggable={!disabled}
+          hoverDraggingStyle={{ backgroundColor: "#2a2a2a" }}
         >
           <TouchableOpacity
-            onPressIn={drag}
-            disabled={isActive || disabled}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            className='pr-2'
+            testID={testID ? `${testID}-row-${item.key}` : undefined}
+            onPress={() => onPressRow(index)}
+            disabled={disabled}
+            className='flex-row items-center px-4 py-3'
+            style={{
+              opacity: isPast ? 0.5 : 1,
+              backgroundColor: isCurrent
+                ? "rgba(147, 52, 233, 0.3)"
+                : "#121212",
+            }}
           >
-            <Ionicons
-              name='reorder-three'
-              size={20}
-              color={isActive ? ACCENT : "#666"}
-            />
-          </TouchableOpacity>
+            <DraxHandle style={{ paddingRight: 8 }}>
+              <Ionicons name='reorder-three' size={20} color='#666' />
+            </DraxHandle>
 
-          <View
-            className={`rounded overflow-hidden bg-neutral-800 mr-3 ${
-              artwork === "poster" ? "w-10 h-[60px]" : "w-12 h-12"
-            }`}
-          >
-            {item.imageUrl ? (
-              <Image
-                source={{ uri: item.imageUrl }}
-                style={{ width: "100%", height: "100%" }}
-                contentFit='cover'
-                cachePolicy='memory-disk'
-              />
-            ) : (
-              <View className='flex-1 items-center justify-center'>
-                <Ionicons name={icon} size={16} color='#666' />
-              </View>
-            )}
-          </View>
-
-          <View className='flex-1 mr-2'>
-            <Text
-              numberOfLines={1}
-              className={`text-base ${isCurrent ? "text-purple-400 font-semibold" : "text-white"}`}
+            <View
+              className={`rounded overflow-hidden bg-neutral-800 mr-3 ${
+                artwork === "poster" ? "w-10 h-[60px]" : "w-12 h-12"
+              }`}
             >
-              {item.title}
-            </Text>
-            {!!item.subtitle && (
-              <Text numberOfLines={1} className='text-neutral-500 text-sm'>
-                {item.subtitle}
+              {item.imageUrl ? (
+                <Image
+                  source={{ uri: item.imageUrl }}
+                  style={{ width: "100%", height: "100%" }}
+                  contentFit='cover'
+                  cachePolicy='memory-disk'
+                />
+              ) : (
+                <View className='flex-1 items-center justify-center'>
+                  <Ionicons name={icon} size={16} color='#666' />
+                </View>
+              )}
+            </View>
+
+            <View className='flex-1 mr-2'>
+              <Text
+                numberOfLines={1}
+                className={`text-base ${isCurrent ? "text-purple-400 font-semibold" : "text-white"}`}
+              >
+                {item.title}
               </Text>
+              {!!item.subtitle && (
+                <Text numberOfLines={1} className='text-neutral-500 text-sm'>
+                  {item.subtitle}
+                </Text>
+              )}
+            </View>
+
+            {isCurrent && <Ionicons name={icon} size={16} color={ACCENT} />}
+
+            {(!isCurrent || canRemoveCurrent) && (
+              <TouchableOpacity
+                testID={testID ? `${testID}-remove-${item.key}` : undefined}
+                onPress={() => onRemoveRow(index)}
+                disabled={disabled}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                className='p-2'
+              >
+                <Ionicons name='close' size={20} color='#666' />
+              </TouchableOpacity>
             )}
-          </View>
-
-          {isCurrent && <Ionicons name={icon} size={16} color={ACCENT} />}
-
-          {(!isCurrent || canRemoveCurrent) && (
-            <TouchableOpacity
-              testID={testID ? `${testID}-remove-${item.key}` : undefined}
-              onPress={() => onRemoveRow(index)}
-              disabled={disabled}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              className='p-2'
-            >
-              <Ionicons name='close' size={20} color='#666' />
-            </TouchableOpacity>
-          )}
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </SortableItem>
       );
     },
     [
+      sortable,
       currentIndex,
       disabled,
       canRemoveCurrent,
       icon,
       artwork,
       testID,
-      scrollable,
       onPressRow,
       onRemoveRow,
     ],
-  );
-
-  const renderRow = useCallback(
-    ({ item, drag, isActive, getIndex }: RenderItemParams<QueueRow>) => (
-      <ScaleDecorator>
-        {row(item, getIndex() ?? 0, isActive, drag)}
-      </ScaleDecorator>
-    ),
-    [row],
-  );
-
-  const handleDragEnd = useCallback(
-    ({ from, to }: { from: number; to: number }) => {
-      onDragActiveChange?.(false);
-      if (from !== to) onMoveRow(from, to);
-    },
-    [onMoveRow, onDragActiveChange],
   );
 
   const headerView = header ? (
@@ -195,7 +193,7 @@ export const DraggableQueueList: React.FC<Props> = ({
         {header}
       </Text>
     </View>
-  ) : null;
+  ) : undefined;
   const emptyView = (
     <View
       className={`items-center justify-center ${scrollable ? "flex-1 py-20" : "py-8"}`}
@@ -204,25 +202,48 @@ export const DraggableQueueList: React.FC<Props> = ({
     </View>
   );
 
+  if (!scrollable) {
+    // Inside something else that scrolls: every row is laid out here and
+    // the parent scrolls, so a swipe on a row (off its handle) moves the
+    // parent, and the queue never hides what comes after it.
+    return (
+      <DraxProvider>
+        <SortableContainer sortable={sortable} scrollRef={columnRef}>
+          <View ref={columnRef} testID={testID}>
+            {headerView}
+            {rows.length === 0
+              ? emptyView
+              : sortable.data.map((item, index) => (
+                  <View key={sortable.stableKeyExtractor(item, index)}>
+                    {row(item, index)}
+                  </View>
+                ))}
+          </View>
+        </SortableContainer>
+      </DraxProvider>
+    );
+  }
+
   return (
-    <DraggableFlatList
-      testID={testID}
-      data={rows}
-      keyExtractor={(item) => item.key}
-      renderItem={renderRow}
-      onDragBegin={() => onDragActiveChange?.(true)}
-      // A press on the handle that never moves ends here, not in onDragEnd.
-      onRelease={() => onDragActiveChange?.(false)}
-      onDragEnd={handleDragEnd}
-      scrollEnabled={scrollable}
-      // Inside something else that scrolls, the list's pan would claim every
-      // vertical swipe that starts on a row, and on Android the parent then
-      // never scrolls: a long queue hid whatever came after it. Limited to
-      // the handles, a swipe anywhere else on a row belongs to the parent.
-      dragHitSlop={scrollable ? undefined : DRAG_HANDLE_STRIP}
-      showsVerticalScrollIndicator={false}
-      ListHeaderComponent={headerView}
-      ListEmptyComponent={emptyView}
-    />
+    <DraxProvider style={{ flex: 1 }}>
+      <SortableContainer
+        sortable={sortable}
+        scrollRef={listRef}
+        style={{ flex: 1 }}
+      >
+        <FlashList
+          ref={listRef}
+          testID={testID}
+          data={sortable.data}
+          keyExtractor={sortable.stableKeyExtractor}
+          onScroll={sortable.onScroll}
+          onContentSizeChange={sortable.onContentSizeChange}
+          renderItem={({ item, index }) => row(item, index)}
+          showsVerticalScrollIndicator={false}
+          ListHeaderComponent={headerView}
+          ListEmptyComponent={emptyView}
+        />
+      </SortableContainer>
+    </DraxProvider>
   );
 };

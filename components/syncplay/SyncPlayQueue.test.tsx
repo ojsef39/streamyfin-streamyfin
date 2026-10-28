@@ -5,46 +5,15 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react-native";
+import { dragRow } from "@/test-utils/drax";
 import { SyncPlayQueue } from "./SyncPlayQueue";
 
-let mockDragEnd: (move: { from: number; to: number }) => void = () => {};
-
-// The real list needs gesture handlers. This one renders the same rows and
-// hands the test its drag callback.
-jest.mock("react-native-draggable-flatlist", () => {
-  const { View } = jest.requireActual("react-native");
-  const List = ({
-    data,
-    renderItem,
-    keyExtractor,
-    onDragEnd,
-    testID,
-    ListEmptyComponent,
-  }: any) => {
-    mockDragEnd = onDragEnd;
-    return (
-      <View testID={testID}>
-        {data.length === 0
-          ? ListEmptyComponent
-          : data.map((item: any, index: number) => (
-              <View key={keyExtractor(item)}>
-                {renderItem({
-                  item,
-                  drag: () => {},
-                  isActive: false,
-                  getIndex: () => index,
-                })}
-              </View>
-            ))}
-      </View>
-    );
-  };
-  return {
-    __esModule: true,
-    default: List,
-    ScaleDecorator: ({ children }: any) => children,
-  };
-});
+// The real list needs gestures and layout: the double renders the same rows
+// and lets the spec drop a dragged one.
+jest.mock(
+  "react-native-drax",
+  () => jest.requireActual("@/test-utils/drax").draxModule,
+);
 jest.mock("@expo/vector-icons", () => ({ Ionicons: () => null }));
 jest.mock("@/components/common/ServerImage", () => ({ Image: () => null }));
 jest.mock("@/providers/JellyfinProvider", () => ({
@@ -120,7 +89,7 @@ test("acts on duplicate videos by their own playlist entry", async () => {
 test("a drag asks the server to move the entry and shows it moved at once", async () => {
   await render(<SyncPlayQueue items={items} />);
   await loaded();
-  await act(async () => mockDragEnd({ from: 2, to: 0 }));
+  await act(async () => dragRow(2, 0));
   expect(mockState.movePlaylistItem).toHaveBeenCalledWith("movie-b-entry", 0);
   expect(titles()).toEqual(["Pilot", "Arrival", "Arrival"]);
 });
@@ -129,7 +98,7 @@ test("a move the server refuses goes back where it was", async () => {
   mockState.movePlaylistItem.mockRejectedValueOnce(new Error("denied"));
   await render(<SyncPlayQueue items={items} />);
   await loaded();
-  await act(async () => mockDragEnd({ from: 2, to: 0 }));
+  await act(async () => dragRow(2, 0));
   await loaded();
 });
 

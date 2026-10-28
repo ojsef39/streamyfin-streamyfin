@@ -99,6 +99,9 @@ Three rules keep mocks from becoming the thing that breaks:
 - `swiftUiModule` stands for `@expo/ui/swift-ui`: the SwiftUI views become plain views and
   each `Menu` keeps the modifiers it was given, which `renderedMenuModifiers(screen)` reads
   back. Leave `@expo/ui/swift-ui/modifiers` real, it is plain JavaScript and loads in Jest.
+- `draxModule` stands for `react-native-drax`: a list renders its rows in order, each
+  sortable item keeps the props it was given, and `dragRow(from, to)` drops a dragged row,
+  since a real drag needs gestures and layout Jest does not have.
 - `tsxRequireHook` stands for `tsx/cjs` in every spec, wired once through
   `moduleNameMapper` instead of per spec. A require hook registered from a spec lands on
   the Jest worker's own loader and breaks whichever spec that worker loads next.
